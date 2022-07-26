@@ -1,13 +1,21 @@
 package com.fongmi.bear.ui.activity;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.Settings;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.ContextCompat;
 import androidx.leanback.widget.ArrayObjectAdapter;
 import androidx.leanback.widget.ItemBridgeAdapter;
 import androidx.viewbinding.ViewBinding;
@@ -31,6 +39,9 @@ public class SettingActivity extends BaseActivity {
         activity.startActivityForResult(new Intent(activity, SettingActivity.class), 1000);
     }
 
+    private final ActivityResultLauncher<String> launcherString = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> loadConfig());
+    private final ActivityResultLauncher<Intent> launcherIntent = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> loadConfig());
+
     @Override
     protected ViewBinding getBinding() {
         return mBinding = ActivitySettingBinding.inflate(getLayoutInflater());
@@ -50,18 +61,29 @@ public class SettingActivity extends BaseActivity {
 
     private void showConfig(View view) {
         DialogConfigBinding bindingDialog = DialogConfigBinding.inflate(LayoutInflater.from(this));
-        bindingDialog.url.setText(Prefers.getUrl());
-        bindingDialog.url.setSelection(bindingDialog.url.getText().length());
+        bindingDialog.text.setText(Prefers.getUrl());
+        bindingDialog.text.setSelection(bindingDialog.text.getText().length());
         AlertDialog dialog = Notify.show(this, bindingDialog.getRoot(), (dialogInterface, i) -> {
-            Prefers.putUrl(bindingDialog.url.getText().toString().trim());
+            Prefers.putUrl(bindingDialog.text.getText().toString().trim());
             mBinding.url.setText(Prefers.getUrl());
             Notify.progress(this);
-            loadConfig();
+            ApiConfig.get().clear();
+            checkUrl();
         });
-        bindingDialog.url.setOnEditorActionListener((textView, actionId, event) -> {
+        bindingDialog.text.setOnEditorActionListener((textView, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_DONE) dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
             return true;
         });
+    }
+
+    private void checkUrl() {
+        if (Prefers.getUrl().startsWith("file://") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            launcherIntent.launch(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+        } else if (Prefers.getUrl().startsWith("file://") && Build.VERSION.SDK_INT < Build.VERSION_CODES.R && ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            launcherString.launch(Manifest.permission.READ_EXTERNAL_STORAGE);
+        } else {
+            loadConfig();
+        }
     }
 
     private void loadConfig() {
@@ -74,9 +96,11 @@ public class SettingActivity extends BaseActivity {
             }
 
             @Override
-            public void error(String msg) {
+            public void error(int resId) {
+                mBinding.home.setText(ApiConfig.get().getHome().getName());
+                setResult(RESULT_OK);
                 Notify.dismiss();
-                Notify.show(msg);
+                Notify.show(resId);
             }
         });
     }

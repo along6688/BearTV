@@ -2,27 +2,34 @@ package com.fongmi.bear.ui.activity;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.os.Handler;
+import android.view.View;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.leanback.widget.ArrayObjectAdapter;
 import androidx.leanback.widget.ItemBridgeAdapter;
 import androidx.leanback.widget.ListRow;
+import androidx.leanback.widget.OnChildViewHolderSelectedListener;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewbinding.ViewBinding;
 
 import com.fongmi.bear.ApiConfig;
 import com.fongmi.bear.R;
 import com.fongmi.bear.bean.Func;
-import com.fongmi.bear.bean.Result;
 import com.fongmi.bear.bean.Vod;
 import com.fongmi.bear.databinding.ActivityHomeBinding;
 import com.fongmi.bear.model.SiteViewModel;
+import com.fongmi.bear.player.Players;
 import com.fongmi.bear.ui.custom.CustomRowPresenter;
 import com.fongmi.bear.ui.custom.CustomSelector;
 import com.fongmi.bear.ui.presenter.FuncPresenter;
 import com.fongmi.bear.ui.presenter.ProgressPresenter;
 import com.fongmi.bear.ui.presenter.TitlePresenter;
 import com.fongmi.bear.ui.presenter.VodPresenter;
+import com.fongmi.bear.utils.Clock;
+import com.fongmi.bear.utils.Notify;
 import com.fongmi.bear.utils.ResUtil;
 
 import java.util.List;
@@ -33,6 +40,7 @@ public class HomeActivity extends BaseActivity implements VodPresenter.OnClickLi
     private SiteViewModel mSiteViewModel;
     private FuncPresenter mFuncPresenter;
     private ArrayObjectAdapter mAdapter;
+    private boolean mConfirmExit;
 
     public static void start(Activity activity) {
         activity.startActivity(new Intent(activity, HomeActivity.class));
@@ -46,6 +54,8 @@ public class HomeActivity extends BaseActivity implements VodPresenter.OnClickLi
 
     @Override
     protected void initView() {
+        Clock.start(mBinding.time);
+        Players.get().init();
         setRecyclerView();
         setViewModel();
         setAdapter();
@@ -55,6 +65,12 @@ public class HomeActivity extends BaseActivity implements VodPresenter.OnClickLi
     @Override
     protected void initEvent() {
         mFuncPresenter.setOnClickListener(this::onFuncClick);
+        mBinding.recycler.addOnChildViewHolderSelectedListener(new OnChildViewHolderSelectedListener() {
+            @Override
+            public void onChildViewHolderSelected(@NonNull RecyclerView parent, @Nullable RecyclerView.ViewHolder child, int position, int subposition) {
+                mBinding.time.setVisibility(position == 1 ? View.VISIBLE : View.GONE);
+            }
+        });
     }
 
     private void setRecyclerView() {
@@ -69,8 +85,9 @@ public class HomeActivity extends BaseActivity implements VodPresenter.OnClickLi
 
     private void setViewModel() {
         mSiteViewModel = new ViewModelProvider(this).get(SiteViewModel.class);
-        mSiteViewModel.mResult.observe(this, result -> {
+        mSiteViewModel.result.observe(this, result -> {
             mAdapter.remove("progress");
+            if (result == null) return;
             for (List<Vod> items : result.partition()) {
                 VodPresenter presenter = new VodPresenter(items.size());
                 ArrayObjectAdapter adapter = new ArrayObjectAdapter(presenter);
@@ -108,8 +125,7 @@ public class HomeActivity extends BaseActivity implements VodPresenter.OnClickLi
     private void onFuncClick(Func item) {
         switch (item.getResId()) {
             case R.string.home_vod:
-                Result result = mSiteViewModel.getResult().getValue();
-                VodActivity.start(this, result);
+                VodActivity.start(this, mSiteViewModel.getResult().getValue());
                 break;
             case R.string.home_setting:
                 SettingActivity.start(this);
@@ -125,7 +141,24 @@ public class HomeActivity extends BaseActivity implements VodPresenter.OnClickLi
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode != RESULT_OK) return;
-        getVideo();
+        if (resultCode == RESULT_OK) getVideo();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (!mConfirmExit) {
+            mConfirmExit = true;
+            Notify.show(R.string.app_exit);
+            new Handler().postDelayed(() -> mConfirmExit = false, 1000);
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        Players.get().release();
+        super.onDestroy();
+        Clock.destroy();
     }
 }
